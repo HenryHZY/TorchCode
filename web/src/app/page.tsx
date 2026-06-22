@@ -48,6 +48,10 @@ type SubmissionResponse = {
   stderr: string;
 };
 
+type SolutionResponse = {
+  solution: string;
+};
+
 export default function Home() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -58,6 +62,10 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<'problem' | 'results'>('problem');
   const [solvedTasks, setSolvedTasks] = useState<Record<string, boolean>>({});
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [solution, setSolution] = useState<string | null>(null);
+  const [isSolutionVisible, setIsSolutionVisible] = useState(false);
+  const [isSolutionLoading, setIsSolutionLoading] = useState(false);
+  const [solutionError, setSolutionError] = useState<string | null>(null);
 
   useEffect(() => {
     // Load solved tasks from local storage
@@ -92,6 +100,9 @@ export default function Home() {
           const savedCode = localStorage.getItem(`torchcode_code_${selectedTaskId}`);
           setCode(savedCode !== null ? savedCode : data.initial_code);
           setResults(null);
+          setSolution(null);
+          setSolutionError(null);
+          setIsSolutionVisible(false);
           setActiveTab('problem');
         })
         .catch(err => console.error("Failed to load task details", err));
@@ -135,6 +146,34 @@ export default function Home() {
       });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleSolutionToggle = async (isOpen: boolean) => {
+    if (!selectedTaskId) return;
+
+    setIsSolutionVisible(isOpen);
+    if (!isOpen) {
+      return;
+    }
+
+    setSolutionError(null);
+
+    if (solution !== null) return;
+
+    setIsSolutionLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/tasks/${selectedTaskId}/solution`);
+      if (!res.ok) {
+        throw new Error("Solution not found for this task.");
+      }
+      const data: SolutionResponse = await res.json();
+      setSolution(data.solution);
+    } catch (err) {
+      console.error("Failed to load solution", err);
+      setSolutionError("Failed to load solution.");
+    } finally {
+      setIsSolutionLoading(false);
     }
   };
 
@@ -307,6 +346,39 @@ export default function Home() {
                         </details>
                       </div>
                     )}
+                    <div className="mt-8 border-t border-[#404040] pt-6">
+                      <details
+                        className="group"
+                        open={isSolutionVisible}
+                        onToggle={(event) => {
+                          const isOpen = event.currentTarget.open;
+                          if (isOpen !== isSolutionVisible) {
+                            void handleSolutionToggle(isOpen);
+                          }
+                        }}
+                      >
+                        <summary className="flex items-center cursor-pointer list-none font-medium text-gray-300 hover:text-white transition-colors">
+                          <span className="mr-2">✅</span> Solution
+                          <ChevronDown className="w-4 h-4 ml-auto group-open:rotate-180 transition-transform" />
+                        </summary>
+                        <div className="mt-4 text-gray-400 text-sm pl-6 border-l-2 border-[#404040] py-1 markdown-body bg-transparent">
+                          {isSolutionLoading ? (
+                            <div>Loading solution...</div>
+                          ) : solutionError ? (
+                            <div className="text-red-300 bg-red-900/20 border border-red-900 rounded-md p-3">
+                              {solutionError}
+                            </div>
+                          ) : (
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm, remarkMath]}
+                              rehypePlugins={[rehypeKatex]}
+                            >
+                              {solution || ""}
+                            </ReactMarkdown>
+                          )}
+                        </div>
+                      </details>
+                    </div>
                   </>
                 ) : (
                   <div className="text-gray-500">Loading problem...</div>

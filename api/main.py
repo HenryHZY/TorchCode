@@ -9,7 +9,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from torch_judge.tasks import TASKS, get_task
 from torch_judge.web_engine import execute_code
-from api.parser import get_all_templates
+from api.parser import get_all_solutions, get_all_templates
 
 app = FastAPI(title="TorchCode UI Backend")
 
@@ -24,6 +24,7 @@ app.add_middleware(
 
 # Load templates on startup
 TEMPLATES = get_all_templates()
+SOLUTIONS = get_all_solutions()
 
 class SubmitRequest(BaseModel):
     code: str
@@ -54,6 +55,18 @@ def get_task_details(task_id: str):
         "description": template.get("description", "Description not found."),
         "initial_code": template.get("initial_code", "# Write your code here.")
     }
+
+@app.get("/api/tasks/{task_id}/solution")
+def get_task_solution(task_id: str):
+    task = get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    solution = SOLUTIONS.get(task_id)
+    if not solution:
+        raise HTTPException(status_code=404, detail="Solution not found")
+
+    return solution
 
 @app.post("/api/submit/{task_id}")
 def submit_code(task_id: str, request: SubmitRequest):
