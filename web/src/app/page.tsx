@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -52,6 +52,11 @@ type SolutionResponse = {
   solution: string;
 };
 
+type SavedCodeResponse = {
+  code: string | null;
+  saved: boolean;
+};
+
 export default function Home() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -66,6 +71,22 @@ export default function Home() {
   const [isSolutionVisible, setIsSolutionVisible] = useState(false);
   const [isSolutionLoading, setIsSolutionLoading] = useState(false);
   const [solutionError, setSolutionError] = useState<string | null>(null);
+  const saveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  const saveCodeToDisk = (taskId: string, newCode: string) => {
+    const existingTimer = saveTimersRef.current[taskId];
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+
+    saveTimersRef.current[taskId] = setTimeout(() => {
+      fetch(`${API_BASE}/code/${taskId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: newCode }),
+      }).catch(err => console.error("Failed to save code to disk", err));
+    }, 500);
+  };
 
   useEffect(() => {
     // Load solved tasks from local storage
@@ -92,20 +113,55 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    const timers = saveTimersRef.current;
+    return () => {
+      Object.values(timers).forEach(clearTimeout);
+    };
+  }, []);
+
+  useEffect(() => {
     if (selectedTaskId) {
-      fetch(`${API_BASE}/tasks/${selectedTaskId}`)
-        .then(res => res.json())
-        .then((data: TaskDetails) => {
+      let isCurrentTask = true;
+
+      const loadTask = async () => {
+        try {
+          const taskRes = await fetch(`${API_BASE}/tasks/${selectedTaskId}`);
+          const data: TaskDetails = await taskRes.json();
+          let savedCodeData: SavedCodeResponse = { code: null, saved: false };
+
+          try {
+            const savedCodeRes = await fetch(`${API_BASE}/code/${selectedTaskId}`);
+            savedCodeData = await savedCodeRes.json();
+          } catch (err) {
+            console.error("Failed to load saved code from disk", err);
+          }
+
+          if (!isCurrentTask) return;
+
           setTaskDetails(data);
           const savedCode = localStorage.getItem(`torchcode_code_${selectedTaskId}`);
-          setCode(savedCode !== null ? savedCode : data.initial_code);
+          const codeToUse = savedCodeData.saved && savedCodeData.code !== null
+            ? savedCodeData.code
+            : savedCode !== null
+              ? savedCode
+              : data.initial_code;
+
+          setCode(codeToUse);
           setResults(null);
           setSolution(null);
           setSolutionError(null);
           setIsSolutionVisible(false);
           setActiveTab('problem');
-        })
-        .catch(err => console.error("Failed to load task details", err));
+        } catch (err) {
+          console.error("Failed to load task details", err);
+        }
+      };
+
+      loadTask();
+
+      return () => {
+        isCurrentTask = false;
+      };
     }
   }, [selectedTaskId]);
 
@@ -180,6 +236,12 @@ export default function Home() {
   const handleReset = () => {
     if (taskDetails && selectedTaskId) {
       localStorage.removeItem(`torchcode_code_${selectedTaskId}`);
+      const existingTimer = saveTimersRef.current[selectedTaskId];
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+      }
+      fetch(`${API_BASE}/code/${selectedTaskId}`, { method: "DELETE" })
+        .catch(err => console.error("Failed to delete saved code", err));
       setCode(taskDetails.initial_code);
       setResults(null);
     }
@@ -503,6 +565,7 @@ export default function Home() {
                   setCode(newCode);
                   if (selectedTaskId) {
                     localStorage.setItem(`torchcode_code_${selectedTaskId}`, newCode);
+                    saveCodeToDisk(selectedTaskId, newCode);
                   }
                 }}
                 options={{
