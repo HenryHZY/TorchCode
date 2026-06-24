@@ -111,9 +111,9 @@ For a modern, standalone coding experience with an integrated IDE and dual-pane 
    ```
 2. **Start Frontend (Next.js):**
    ```bash
-cd web
-npm install
-npm run dev
+   cd web
+   npm install
+   npm run dev
    ```
 3. Open **<http://localhost:3000>** in your browser.
 
